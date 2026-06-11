@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=77.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voisona-talk-proxy"
+version = "0.1.0"
+description = "A tiny proxy that makes local VoiSona Talk speech synthesis available over the network."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "uezo" }
+]
+dependencies = [
+    "aiofiles>=25.1.0",
+    "httpx>=0.28.1",
+    "fastapi>=0.136.3",
+    "uvicorn>=0.49.0",
+]
+
+keywords = ["voisona", "tts", "speech-synthesis", "fastapi"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=9.0.0",
+]
+
+[project.scripts]
+voisona-talk-proxy = "voisona_talk_proxy.cli:main"
+voisona_talk_proxy = "voisona_talk_proxy.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["voisona_talk_proxy*"]
