@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VoiSona Talk Proxy Playground</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              ink: "#17202a",
+              slateLine: "#d7dde2",
+              brand: "#0f766e",
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="min-h-screen bg-slate-100 text-ink antialiased">
+    <main class="mx-auto grid min-h-screen w-full max-w-6xl gap-4 px-4 py-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:py-8">
+      <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <header class="border-b border-slate-200 px-4 py-4 sm:px-6">
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wide text-teal-700">Playground</p>
+              <h1 class="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">VoiSona Talk Proxy</h1>
+            </div>
+          </div>
+        </header>
+
+        <div class="grid gap-5 p-4 sm:p-6">
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="grid gap-1.5">
+              <span class="text-sm font-semibold text-slate-700">Username</span>
+              <input
+                id="username"
+                class="h-11 rounded-lg border border-slate-300 bg-white px-3 text-base outline-none transition focus:border-teal-600 focus:ring-4 focus:ring-teal-600/10"
+                autocomplete="username"
+              />
+            </label>
+            <label class="grid gap-1.5">
+              <span class="text-sm font-semibold text-slate-700">Password</span>
+              <input
+                id="password"
+                type="password"
+                class="h-11 rounded-lg border border-slate-300 bg-white px-3 text-base outline-none transition focus:border-teal-600 focus:ring-4 focus:ring-teal-600/10"
+                autocomplete="current-password"
+              />
+            </label>
+          </div>
+          <label class="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <input
+              id="rememberCredentials"
+              type="checkbox"
+              class="mt-1 h-4 w-4 rounded border-amber-300 text-teal-700 focus:ring-teal-600"
+            />
+            <span>
+              Remember credentials in this browser.
+              <span class="block text-xs text-amber-800">Stored in localStorage. Use only on your own device.</span>
+            </span>
+          </label>
+
+          <div class="grid gap-1.5">
+            <div class="flex items-center justify-between gap-3">
+              <label class="text-sm font-semibold text-slate-700" for="voiceSelect">Voice</label>
+              <button
+                id="loadVoicesButton"
+                type="button"
+                class="inline-flex h-9 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 active:translate-y-px disabled:cursor-wait disabled:opacity-60"
+              >
+                Load Voices
+              </button>
+            </div>
+            <select
+              id="voiceSelect"
+              class="h-12 rounded-lg border border-slate-300 bg-white px-3 text-base outline-none transition focus:border-teal-600 focus:ring-4 focus:ring-teal-600/10"
+            >
+              <option value="">Loading voices...</option>
+            </select>
+          </div>
+
+          <label class="grid gap-1.5">
+            <span class="text-sm font-semibold text-slate-700">Text</span>
+            <textarea
+              id="text"
+              rows="9"
+              class="min-h-44 rounded-lg border border-slate-300 bg-white px-3 py-3 text-lg leading-relaxed outline-none transition focus:border-teal-600 focus:ring-4 focus:ring-teal-600/10"
+            >こんにちは</textarea>
+          </label>
+
+          <details class="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+            <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">Payload</summary>
+            <textarea
+              id="payload"
+              rows="12"
+              class="block w-full border-0 border-t border-slate-200 bg-white px-3 py-3 font-mono text-sm leading-relaxed outline-none focus:ring-4 focus:ring-teal-600/10"
+            ></textarea>
+          </details>
+        </div>
+      </section>
+
+      <aside class="rounded-xl border border-slate-200 bg-white shadow-sm lg:sticky lg:top-8 lg:h-fit">
+        <div class="border-b border-slate-200 px-4 py-4">
+          <h2 class="text-base font-bold">Output</h2>
+        </div>
+
+        <div class="grid gap-4 p-4">
+          <button
+            id="synthesizeButton"
+            type="button"
+            class="inline-flex h-12 w-full items-center justify-center rounded-lg bg-teal-700 px-4 text-base font-bold text-white shadow-sm transition hover:bg-teal-800 active:translate-y-px disabled:cursor-wait disabled:opacity-60"
+          >
+            Synthesize
+          </button>
+
+          <audio id="audio" class="w-full" controls></audio>
+
+          <a
+            id="downloadLink"
+            class="inline-flex h-11 w-full items-center justify-center rounded-lg bg-slate-800 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-slate-900 active:translate-y-px"
+            hidden
+            download="voisona.wav"
+          >
+            Download WAV
+          </a>
+
+          <pre
+            id="status"
+            class="min-h-28 max-h-56 overflow-auto rounded-lg bg-slate-950 p-3 text-sm leading-relaxed text-slate-100"
+            aria-live="polite"
+          ></pre>
+        </div>
+      </aside>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

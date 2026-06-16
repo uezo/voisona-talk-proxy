@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voisona-talk-proxy"
-version = "0.1.0"
+version = "0.2.0"
 description = "A tiny proxy that makes local VoiSona Talk speech synthesis available over the network."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -42,3 +42,6 @@ voisona_talk_proxy = "voisona_talk_proxy.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["voisona_talk_proxy*"]
+
+[tool.setuptools.package-data]
+voisona_talk_proxy = ["static/playground/*.html", "static/playground/*.css", "static/playground/*.js"]

@@ -13,7 +13,15 @@ def load_api_config():
     section = config["voisona"]
     return {
         "api_base_url": section["API_BASE_URL"].rstrip("/"),
+        "username": section.get("VOISONA_USERNAME"),
+        "password": section.get("VOISONA_PASSWORD"),
     }
+
+
+def get_api_auth(config):
+    if config["username"] is None and config["password"] is None:
+        return None
+    return (config["username"] or "", config["password"] or "")
 
 
 def get_first_voice(voices):
@@ -56,7 +64,7 @@ def test_proxy_health():
 def test_proxy_get_voices():
     async def scenario():
         config = load_api_config()
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=60.0, auth=get_api_auth(config)) as client:
             response = await client.get(f"{config['api_base_url']}/voices")
 
         assert_ok(response)
@@ -68,7 +76,7 @@ def test_proxy_get_voices():
 def test_proxy_synthesize_returns_wav():
     async def scenario():
         config = load_api_config()
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=60.0, auth=get_api_auth(config)) as client:
             voices_response = await client.get(f"{config['api_base_url']}/voices")
             assert_ok(voices_response)
             voice = get_first_voice(voices_response.json())
@@ -91,10 +99,164 @@ def test_proxy_synthesize_returns_wav():
     run(scenario())
 
 
+def test_proxy_synthesize_ignores_body_credentials():
+    async def scenario():
+        app = FastAPI()
+        proxy = VoisonaProxy()
+
+        class FakeClient:
+            def __init__(self):
+                self.call = None
+
+            async def close(self):
+                pass
+
+            async def synthesize(self, payload, username=None, password=None):
+                self.call = {
+                    "payload": payload,
+                    "username": username,
+                    "password": password,
+                }
+                return b"RIFF" + (b"\x00" * 40)
+
+        fake_client = FakeClient()
+        await proxy.client.close()
+        proxy.client = fake_client
+        app.include_router(proxy.get_api_router())
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            auth=("header-user", "header-pass"),
+        ) as client:
+            response = await client.post(
+                "/speech-syntheses",
+                json={
+                    "text": "hello",
+                    "language": "ja_JP",
+                    "username": "body-user",
+                    "password": "body-pass",
+                },
+            )
+
+        assert_ok(response)
+        assert fake_client.call == {
+            "payload": {
+                "text": "hello",
+                "language": "ja_JP",
+            },
+            "username": "header-user",
+            "password": "header-pass",
+        }
+
+    run(scenario())
+
+
+def test_proxy_passes_basic_auth_credentials_to_client():
+    async def scenario():
+        app = FastAPI()
+        proxy = VoisonaProxy()
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+
+            async def close(self):
+                pass
+
+            async def get_voices(self, username=None, password=None):
+                self.calls.append(("get_voices", username, password))
+                return {"items": []}
+
+            async def synthesize(self, payload, username=None, password=None):
+                self.calls.append(("synthesize", username, password))
+                return b"RIFF" + (b"\x00" * 40)
+
+        fake_client = FakeClient()
+        await proxy.client.close()
+        proxy.client = fake_client
+        app.include_router(proxy.get_api_router())
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            auth=("header-user", "header-pass"),
+        ) as client:
+            voices_response = await client.get("/voices")
+            synthesize_response = await client.post(
+                "/speech-syntheses",
+                json={"text": "hello", "language": "ja_JP"},
+            )
+
+        assert_ok(voices_response)
+        assert_ok(synthesize_response)
+        assert fake_client.calls == [
+            ("get_voices", "header-user", "header-pass"),
+            ("synthesize", "header-user", "header-pass"),
+        ]
+
+    run(scenario())
+
+
+def test_proxy_openapi_includes_speech_synthesis_request_schema():
+    app = FastAPI()
+    proxy = VoisonaProxy()
+    app.include_router(proxy.get_api_router())
+
+    schema = app.openapi()
+
+    request_body = schema["paths"]["/speech-syntheses"]["post"]["requestBody"]
+    assert request_body["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/SpeechSynthesisRequest"
+    )
+
+    request_schema = schema["components"]["schemas"]["SpeechSynthesisRequest"]
+    properties = request_schema["properties"]
+    assert request_schema["required"] == ["language"]
+    assert properties["language"]["type"] == "string"
+    assert properties["text"]["anyOf"][0]["type"] == "string"
+    assert request_schema["anyOf"][0]["required"] == ["analyzed_text"]
+    assert request_schema["anyOf"][1]["required"] == ["text"]
+    assert "username" not in properties
+    assert "password" not in properties
+    assert properties["global_parameters"]["anyOf"][0]["$ref"].endswith(
+        "/SpeechSynthesisGlobalParameters"
+    )
+    response_content = schema["paths"]["/speech-syntheses"]["post"]["responses"]["200"]["content"]
+    assert "application/json" not in response_content
+    assert response_content["audio/wav"]["schema"] == {
+        "type": "string",
+        "format": "binary",
+    }
+    assert schema["components"]["securitySchemes"]["HTTPBasic"]["type"] == "http"
+    assert schema["components"]["securitySchemes"]["HTTPBasic"]["scheme"] == "basic"
+
+    run(proxy.close())
+
+
+def test_proxy_synthesize_requires_text_or_analyzed_text():
+    async def scenario():
+        app = FastAPI()
+        proxy = VoisonaProxy()
+        app.include_router(proxy.get_api_router())
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/speech-syntheses", json={"language": "ja_JP"})
+
+        await proxy.close()
+
+        assert response.status_code == 422, response.text
+
+    run(scenario())
+
+
 def test_proxy_compat_paths():
     async def scenario():
         config = load_api_config()
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=60.0, auth=get_api_auth(config)) as client:
             health_response = await client.get(f"{config['api_base_url']}/api/talk/v1/health")
             voices_response = await client.get(f"{config['api_base_url']}/api/talk/v1/voices")
 

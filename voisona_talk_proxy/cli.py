@@ -2,7 +2,9 @@ import argparse
 from contextlib import asynccontextmanager
 import logging
 import os
+from pathlib import Path
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from .proxy import VoisonaProxy
 
@@ -34,6 +36,12 @@ def create_app(
 
     app = FastAPI(lifespan=lifespan)
     app.include_router(proxy.get_api_router())
+    static_dir = Path(__file__).parent / "static"
+    app.mount(
+        "/playground",
+        StaticFiles(directory=static_dir / "playground", html=True),
+        name="playground",
+    )
     return app
 
 
