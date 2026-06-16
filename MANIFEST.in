@@ -1,1 +1,2 @@
 prune tests
+recursive-include voisona_talk_proxy/static *.html *.css *.js

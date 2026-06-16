@@ -53,15 +53,31 @@ class VoisonaTalkClient:
 
     @property
     def auth(self):
-        if self.username is None and self.password is None:
+        return self.make_auth()
+
+    def make_auth(
+        self,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+    ):
+        effective_username = self.username if username is None else username
+        effective_password = self.password if password is None else password
+        if effective_username is None and effective_password is None:
             return None
-        return (self.username or "", self.password or "")
+        return (effective_username or "", effective_password or "")
 
     async def close(self):
         await self.http_client.aclose()
 
-    async def get_voices(self):
-        response = await self.http_client.get(f"{self.base_url}/voices", auth=self.auth)
+    async def get_voices(
+        self,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+    ):
+        response = await self.http_client.get(
+            f"{self.base_url}/voices",
+            auth=self.make_auth(username, password),
+        )
         raise_for_status_with_body(response)
         return response.json()
 
@@ -71,6 +87,8 @@ class VoisonaTalkClient:
         normalized_payload.pop("destination", None)
         normalized_payload.pop("force_enqueue", None)
         normalized_payload.pop("can_overwrite_file", None)
+        normalized_payload.pop("username", None)
+        normalized_payload.pop("password", None)
         encoded = json.dumps(
             normalized_payload,
             ensure_ascii=False,
@@ -111,9 +129,21 @@ class VoisonaTalkClient:
         except FileNotFoundError:
             return None
 
-        return await self.read_complete_wav(cache_path, size)
+        audio = await self.read_complete_wav(cache_path, size)
+        if audio is None:
+            return None
 
-    async def synthesize(self, payload: dict) -> bytes:
+        return audio
+
+    async def synthesize(
+        self,
+        payload: dict,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> bytes:
+        request_username = username
+        request_password = password
+        auth = self.make_auth(request_username, request_password)
         cache_path = self.make_cache_path(payload)
 
         cached_audio = await self.read_cached_audio(cache_path)
@@ -125,14 +155,16 @@ class VoisonaTalkClient:
             upstream_payload = dict(payload)
             upstream_payload.pop("output_file_path", None)
             upstream_payload.pop("destination", None)
-            upstream_payload.setdefault("force_enqueue", True)
+            upstream_payload.pop("username", None)
+            upstream_payload.pop("password", None)
+            upstream_payload["force_enqueue"] = True
             upstream_payload["can_overwrite_file"] = True
             upstream_payload["destination"] = "file"
             upstream_payload["output_file_path"] = cache_path
 
             response = await self.http_client.post(
                 f"{self.base_url}/speech-syntheses",
-                auth=self.auth,
+                auth=auth,
                 json=upstream_payload,
             )
             raise_for_status_with_body(response)
@@ -145,7 +177,11 @@ class VoisonaTalkClient:
         finally:
             if request_uuid and self.delete_request:
                 try:
-                    await self.delete_synthesis_request(request_uuid)
+                    await self.delete_synthesis_request(
+                        request_uuid,
+                        username=request_username,
+                        password=request_password,
+                    )
                 except Exception:
                     logger.exception("Failed to delete Voisona speech synthesis request")
 
@@ -180,27 +216,55 @@ class VoisonaTalkClient:
 
     @staticmethod
     async def read_complete_wav(output_file_path: str, size: int) -> Optional[bytes]:
-        if size < 44:
+        if size < 12:
             return None
 
         async with aiofiles.open(output_file_path, "rb") as f:
-            header = await f.read(8)
-            if len(header) < 8 or header[:4] != b"RIFF":
+            header = await f.read(12)
+            if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
                 return None
 
-            expected_size = int.from_bytes(header[4:8], "little") + 8
-            if size < expected_size:
+            data_end = None
+            offset = 12
+
+            while offset + 8 <= size:
+                await f.seek(offset)
+                chunk_header = await f.read(8)
+                if len(chunk_header) < 8:
+                    return None
+
+                chunk_id = chunk_header[:4]
+                chunk_size = int.from_bytes(chunk_header[4:8], "little")
+                chunk_data_start = offset + 8
+                chunk_data_end = chunk_data_start + chunk_size
+                padded_chunk_end = chunk_data_end + (chunk_size % 2)
+
+                if chunk_id == b"data":
+                    data_end = chunk_data_end
+                    break
+
+                if padded_chunk_end <= offset:
+                    return None
+                offset = padded_chunk_end
+
+            if data_end is None or size < data_end:
                 return None
 
             await f.seek(0)
             audio = await f.read()
-            if len(audio) < expected_size:
+            if len(audio) < data_end:
                 return None
-            return audio
 
-    async def delete_synthesis_request(self, request_uuid: str):
+        return audio
+
+    async def delete_synthesis_request(
+        self,
+        request_uuid: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+    ):
         response = await self.http_client.delete(
             f"{self.base_url}/speech-syntheses/{request_uuid}",
-            auth=self.auth,
+            auth=self.make_auth(username, password),
         )
         raise_for_status_with_body(response)

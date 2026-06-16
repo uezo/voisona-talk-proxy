@@ -1,6 +1,8 @@
 import asyncio
 import sys
 
+import httpx
+
 from voisona_talk_proxy import cli
 from voisona_talk_proxy.cli import create_app, parse_args
 
@@ -57,5 +59,35 @@ def test_create_app_closes_proxy_on_lifespan_shutdown(monkeypatch):
             assert closed is False
 
         assert closed is True
+
+    asyncio.run(scenario())
+
+
+def test_create_app_serves_playground(monkeypatch):
+    class FakeProxy:
+        def __init__(self, **kwargs):
+            pass
+
+        def get_api_router(self):
+            from fastapi import APIRouter
+
+            return APIRouter()
+
+        async def close(self):
+            pass
+
+    async def scenario():
+        monkeypatch.setattr(cli, "VoisonaProxy", FakeProxy)
+        app = create_app()
+        transport = httpx.ASGITransport(app=app)
+
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            index_response = await client.get("/playground/")
+            script_response = await client.get("/playground/app.js")
+
+        assert index_response.status_code == 200, index_response.text
+        assert "VoiSona Talk Proxy" in index_response.text
+        assert script_response.status_code == 200, script_response.text
+        assert "URL.createObjectURL" in script_response.text
 
     asyncio.run(scenario())
